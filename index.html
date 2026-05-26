@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>USSL Engine - alpha 0.1</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #050508; 
+            display: flex; 
+            flex-direction: column;
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            overflow: hidden; 
+            font-family: monospace;
+            user-select: none;
+        }
+        
+        #panel-rendimiento {
+            color: #00ffcc;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 10px 20px;
+            border-radius: 5px;
+            border: 1px solid #00ffcc;
+            margin-bottom: 15px;
+            font-size: 16px;
+            text-shadow: 0 0 5px #00ffcc;
+        }
+
+        #pantalla-juego {
+            width: 800px;
+            height: 480px;
+            border: 4px solid #1a1a26;
+            /* CIELO MEJORADO: Capas puras de tonos Azules (C) y Turquesas (K) sin rastro de rosa */
+            background: linear-gradient(to bottom, 
+                hsl(220, 100%, 25%) 0%,   hsl(220, 100%, 25%) 25%, 
+                hsl(220, 100%, 45%) 25%,  hsl(220, 100%, 45%) 55%, 
+                hsl(200, 100%, 55%) 55%,  hsl(200, 100%, 55%) 80%, 
+                hsl(175, 100%, 60%) 80%,  hsl(175, 100%, 60%) 100%
+            ); 
+            position: relative; 
+            overflow: hidden;
+            box-shadow: 0 0 35px rgba(0, 162, 255, 0.3);
+        }
+
+        #mundo {
+            width: 3000px;
+            height: 480px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            will-change: transform;
+        }
+
+        ussl-spr { 
+            position: absolute; 
+            top: 0;
+            left: 0;
+            will-change: transform;
+        }
+
+        /* Pantalla de inicio para activar el sintetizador de sonido */
+        #pantalla-inicio {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 15, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        #btn-jugar {
+            background: #00ffcc;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 20px;
+            font-family: monospace;
+            font-weight: bold;
+            border-radius: 4px;
+            box-shadow: 0 0 15px #00ffcc;
+            animation: pulso 1s infinite alternate;
+        }
+
+        @keyframes pulso {
+            from { transform: scale(1); }
+            to { transform: scale(1.08); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="panel-rendimiento">
+        Mundo 1-1 | FPS: <span id="fps-val">0</span> | Estado: <span id="estado-juego" style="color:#00ffcc;">Esperando Inicio</span>
+    </div>
+
+    <div id="pantalla-juego">
+        
+        <div id="pantalla-inicio" onclick="iniciarJuego()">
+            <h1 style="margin-bottom: 5px; color: #00a2ff; text-shadow: 0 0 10px #00a2ff;">USSL Engine - alpha 0.1</h1>
+            <p style="color: #aaa; margin-bottom: 25px;">Mundo Azul con Efectos de Sonido Retro</p>
+            <button id="btn-jugar">¡HIC CLIC PARA JUGAR!</button>
+        </div>
+
+        <div id="mundo">
+            
+            <ussl-spr size="8" x="500" y="25">
+                O(3-6,0)/O(2-7,1)/H(1-8,2)/H(1-8,3)/H(0-9,4)/H(1-8,5)/H(1-8,6)/O(2-7,7)/O(3-6,8)
+            </ussl-spr>
+
+            <ussl-spr size="8" x="100" y="50">
+                I-8(4-11,0)/I-8(2-13,1)/I-7(1-14,2)/I-6(0-15,3)/I-8(3-12,4)
+            </ussl-spr>
+            <ussl-spr size="7" x="900" y="30">
+                I-8(3-10,0)/I-8(1-12,1)/I-7(0-13,2)/I-6(0-14,3)
+            </ussl-spr>
+            <ussl-spr size="9" x="1600" y="60">
+                I-8(4-11,0)/I-8(2-13,1)/I-7(1-14,2)/I-6(0-15,3)/I-8(3-12,4)
+            </ussl-spr>
+
+            <div id="elementos-nivel"></div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- SINTETIZADOR NATIVO DE AUDIO DE 8-BITS ---
+        class SintetizadorRetro {
+            constructor() {
+                this.ctx = null;
+                this.loopMusica = null;
+            }
+            
+            init() {
+                if (this.ctx) return;
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                // this.reproducirMusica(); // Música eliminada a petición
+            }
+
+            playSalto() {
+                if (!this.ctx) return;
+                let osc = this.ctx.createOscillator();
+                let gain = this.ctx.createGain();
+                osc.type = 'triangle'; // Tono suave de salto NES
+                osc.frequency.setValueAtTime(160, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(650, this.ctx.currentTime + 0.16);
+                gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.16);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.16);
+            }
+
+            playAplastamiento() {
+                if (!this.ctx) return;
+                let osc = this.ctx.createOscillator();
+                let gain = this.ctx.createGain();
+                osc.type = 'square'; // Golpe rudo
+                osc.frequency.setValueAtTime(130, this.ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(30, this.ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.08);
+            }
+
+            playGameOver() {
+                if (!this.ctx) return;
+                this.stopMusica();
+                // Secuencia de acordes tristes descendentes
+                const notasDerrota = [392, 349, 311, 246]; 
+                notasDerrota.forEach((f, idx) => {
+                    let osc = this.ctx.createOscillator();
+                    let gain = this.ctx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(f, this.ctx.currentTime + idx * 0.15);
+                    gain.gain.setValueAtTime(0.2, this.ctx.currentTime + idx * 0.15);
+                    gain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + (idx + 1) * 0.15);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(this.ctx.currentTime + idx * 0.15);
+                    osc.stop(this.ctx.currentTime + (idx + 1) * 0.15);
+                });
+            }
+
+            reproducirMusica() {
+                // Melodía cíclica alegre estilo Chiptune
+                const notasMelodia = [
+                    330, 330, 0, 330, 0, 261, 330, 0, 
+                    392, 0, 0, 0, 196, 0, 0, 0,
+                    261, 0, 0, 196, 0, 0, 164, 0,
+                    220, 0, 246, 0, 233, 220, 0, 196
+                ];
+                let paso = 0;
+                
+                this.loopMusica = setInterval(() => {
+                    let freq = notasMelodia[paso % notasMelodia.length];
+                    if (freq > 0 && juegoActivo) {
+                        let osc = this.ctx.createOscillator();
+                        let gain = this.ctx.createGain();
+                        osc.type = 'square'; // Sonido clásico de GameBoy / NES
+                        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                        gain.gain.setValueAtTime(0.04, this.ctx.currentTime); // Volumen de fondo controlado
+                        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.12);
+                        osc.connect(gain); gain.connect(this.ctx.destination);
+                        osc.start(); osc.stop(this.ctx.currentTime + 0.14);
+                    }
+                    paso++;
+                }, 130);
+            }
+
+            stopMusica() {
+                if (this.loopMusica) clearInterval(this.loopMusica);
+            }
+        }
+
+        const audio = new SintetizadorRetro();
+
+        // --- MOTOR COMPONENTES USSL ---
+        customElements.define("ussl-spr", class extends HTMLElement {
+            connectedCallback() {
+                this.size = parseInt(this.getAttribute('size')) || 16;
+                this.posX = this.posX !== undefined ? this.posX : (parseFloat(this.getAttribute('x')) || 0);
+                this.posY = this.posY !== undefined ? this.posY : (parseFloat(this.getAttribute('y')) || 0);
+
+                const base = { 
+                    'A': 0, 'B': 120, 'C': 220, 'D': 30, 'E': 25, 'F': 0, 'G': 280,
+                    'H': 55, 'I': 200, 'J': 320, 'K': 165, 'L': 15, 'M': 240, 'N': 90, 'O': 42
+                };
+
+                const grupos = this.innerText.replace(/\s/g, '').split("/");
+                let mx = 0, my = 0;
+                this.pixeles = [];
+
+                grupos.forEach(g => {
+                    const idx = g.indexOf('(');
+                    if (idx === -1) return;
+                    
+                    const parts = g.substring(0, idx).split('-');
+                    const letra = parts[0];
+                    const v = parts[1] ? parseInt(parts[1]) : 1;
+                    
+                    let lum = 50;
+                    if (v >= 2 && v <= 4) lum = 50 - (v - 1) * 12;
+                    if (v >= 5 && v <= 8) lum = 50 + (v - 4) * 11;
+                    
+                    let sat = '100%';
+                    if (letra === 'E') sat = '60%';
+                    if (letra === 'I') sat = '0%'; 
+                    if (letra === 'F') lum = 0;
+                    if (letra === 'D' && this.id === 'mario') { lum = 65; sat = '85%'; }
+
+                    const color = base[letra] !== undefined ? `hsl(${base[letra]},${sat},${lum}%)` : null;
+
+                    [...g.substring(idx).matchAll(/\(([\d-]+),([\d-]+)\)/g)].forEach(c => {
+                        const xStr = c[1]; const yStr = c[2];
+                        const xRango = xStr.includes('-') ? xStr.split('-').map(Number) : [parseInt(xStr), parseInt(xStr)];
+                        const yRango = yStr.includes('-') ? yStr.split('-').map(Number) : [parseInt(yStr), parseInt(yStr)];
+
+                        for (let y = yRango[0]; y <= yRango[1]; y++) {
+                            if (y > my) my = y;
+                            for (let x = xRango[0]; x <= xRango[1]; x++) {
+                                if (x > mx) mx = x;
+                                if (color) this.pixeles.push({ color, x, y });
+                            }
+                        }
+                    });
+                });
+
+                this.canvas = document.createElement('canvas');
+                this.canvas.width = (mx + 1) * this.size; 
+                this.canvas.height = (my + 1) * this.size;
+                this.ctx = this.canvas.getContext('2d');
+                this.ctx.imageSmoothingEnabled = false;
+
+                this.innerHTML = '';
+                this.appendChild(this.canvas);
+                
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.pixeles.forEach(p => { 
+                    this.ctx.fillStyle = p.color; 
+                    this.ctx.fillRect(p.x * this.size, p.y * this.size, this.size, this.size); 
+                });
+
+                this.actualizarPosicion();
+            }
+
+            actualizarPosicion() {
+                this.style.transform = `translate3d(${this.posX}px, ${this.posY}px, 0)`;
+            }
+        });
+
+        // --- MODELOS DE CONSTRUCCIÓN ---
+        // Personaje y enemigo convertidos a cuadrados sólidos según su caja de colisiones
+        const spriteMarioNES = `
+            A(0-11,0-14)
+        `;
+
+        const spriteGoomba = `
+            E(0-15,0-10)
+        `;
+
+        const spriteBloqueOro = `
+            O(0-15,0)/O(0,0-15)/F(15,0-15)/F(0-15,15)/
+            H(1-14,1-14)/O(3-12,3)(3-12,12)/O(3,3-12)(12,3-12)
+        `;
+
+        const contenedor = document.getElementById('elementos-nivel');
+        const mundoDOM = document.getElementById('mundo');
+
+        const bloquesSolidos = [];
+        const listaGoombas = [];
+        let juegoActivo = false;
+
+        // Suelo Completo Estilo Ladrillo (L = Coral, E = Marrón)
+        for (let i = 0; i < 48; i++) {
+            crearBloqueSuelo(i * 64, 416);
+        }
+
+        // Estructuras flotantes de Oro
+        crearEstructuraBloques(320, 270, 3);
+        crearEstructuraBloques(750, 210, 4);
+        crearEstructuraBloques(1300, 270, 3);
+        crearEstructuraBloques(1800, 190, 4);
+
+        // Despliegue de Goombas
+        spawnGoomba(500, 350);
+        spawnGoomba(900, 140);
+        spawnGoomba(1450, 350);
+
+        // Instanciar a Mario
+        const jugadorHTML = document.createElement('ussl-spr');
+        jugadorHTML.id = "mario";
+        jugadorHTML.setAttribute('size', '2.5'); 
+        jugadorHTML.innerText = spriteMarioNES;
+        jugadorHTML.posX = 100;
+        jugadorHTML.posY = 150;
+        jugadorHTML.velX = 0;
+        jugadorHTML.velY = 0;
+        jugadorHTML.ancho = 12 * 2.5;
+        jugadorHTML.alto = 15 * 2.5;
+        contenedor.appendChild(jugadorHTML);
+
+        function crearBloqueSuelo(x, y) {
+            const b = document.createElement('ussl-spr');
+            b.innerText = `L(0-15,0-15)/E(0-15,0)(0,0-15)/F(15,0-15)(0-15,15)`;
+            b.setAttribute('size', '4');
+            b.posX = x; b.posY = y;
+            b.ancho = 64; b.alto = 64;
+            contenedor.appendChild(b);
+            bloquesSolidos.push(b);
+        }
+
+        function crearEstructuraBloques(x, y, cantidad) {
+            for (let i = 0; i < cantidad; i++) {
+                const b = document.createElement('ussl-spr');
+                b.innerText = spriteBloqueOro;
+                b.setAttribute('size', '3'); 
+                b.posX = x + (i * 48); b.posY = y;
+                b.ancho = 48; b.alto = 48;
+                contenedor.appendChild(b);
+                bloquesSolidos.push(b);
+            }
+        }
+
+        function spawnGoomba(x, y) {
+            const g = document.createElement('ussl-spr');
+            g.innerText = spriteGoomba;
+            g.setAttribute('size', '2.5');
+            g.posX = x; g.posY = y;
+            g.velX = -1.6; 
+            g.velY = 0;
+            g.ancho = 16 * 2.5;
+            g.alto = 11 * 2.5;
+            contenedor.appendChild(g);
+            listaGoombas.push(g);
+        }
+
+        // --- SISTEMA FÍSICO COHESIVO ---
+        const gravedad = 0.65;
+        const friccion = 0.84;
+        let enSuelo = false;
+        const teclas = {};
+
+        window.addEventListener('keydown', (e) => { if(juegoActivo) teclas[e.key] = true; });
+        window.addEventListener('keyup', (e) => { teclas[e.key] = false; });
+
+        function verificarColision(rect1, rect2) {
+            return rect1.posX < rect2.posX + rect2.ancho &&
+                   rect1.posX + rect1.ancho > rect2.posX &&
+                   rect1.posY < rect2.posY + rect2.alto &&
+                   rect1.posY + rect1.alto > rect2.posY;
+        }
+
+        function iniciarJuego() {
+            document.getElementById('pantalla-inicio').style.display = 'none';
+            document.getElementById('estado-juego').textContent = "Jugando";
+            juegoActivo = true;
+            audio.init(); // Dispara el sintetizador
+            requestAnimationFrame(loop);
+        }
+
+        let ultimoTiempo = performance.now(), frames = 0;
+        const fpsDisplay = document.getElementById('fps-val');
+
+        function loop() {
+            let ahora = performance.now();
+            frames++;
+            if (ahora >= ultimoTiempo + 1000) {
+                fpsDisplay.textContent = frames;
+                frames = 0;
+                ultimoTiempo = ahora;
+            }
+
+            if (!juegoActivo) return;
+
+            // Movimiento de Mario
+            if (teclas['ArrowLeft'])  jugadorHTML.velX -= 1.3;
+            if (teclas['ArrowRight']) jugadorHTML.velX += 1.3;
+            if (teclas['ArrowUp'] && enSuelo) {
+                jugadorHTML.velY = -12.5; 
+                enSuelo = false;
+                audio.playSalto(); // <--- SONIDO DE SALTO
+            }
+
+            jugadorHTML.velY += gravedad;
+            jugadorHTML.velX *= friccion;
+
+            // Eje X Mario
+            jugadorHTML.posX += jugadorHTML.velX;
+            if (jugadorHTML.posX < 0) jugadorHTML.posX = 0;
+
+            bloquesSolidos.forEach(bloque => {
+                if (verificarColision(jugadorHTML, bloque)) {
+                    if (jugadorHTML.velX > 0) jugadorHTML.posX = bloque.posX - jugadorHTML.ancho;
+                    else if (jugadorHTML.velX < 0) jugadorHTML.posX = bloque.posX + bloque.ancho;
+                    jugadorHTML.velX = 0;
+                }
+            });
+
+            // Eje Y Mario
+            jugadorHTML.posY += jugadorHTML.velY;
+            enSuelo = false;
+
+            bloquesSolidos.forEach(bloque => {
+                if (verificarColision(jugadorHTML, bloque)) {
+                    if (jugadorHTML.velY > 0) { 
+                        jugadorHTML.posY = bloque.posY - jugadorHTML.alto;
+                        jugadorHTML.velY = 0;
+                        enSuelo = true;
+                    } else if (jugadorHTML.velY < 0) { 
+                        jugadorHTML.posY = bloque.posY + bloque.alto;
+                        jugadorHTML.velY = 0;
+                    }
+                }
+            });
+
+            // Caída Fatal
+            if (jugadorHTML.posY > 480) finalizacionJuego();
+
+            jugadorHTML.actualizarPosicion();
+
+            // Inteligencia de los Goombas
+            for (let i = listaGoombas.length - 1; i >= 0; i--) {
+                const goomba = listaGoombas[i];
+
+                goomba.velY += gravedad;
+                goomba.posX += goomba.velX;
+
+                bloquesSolidos.forEach(bloque => {
+                    if (verificarColision(goomba, bloque)) {
+                        goomba.velX *= -1; 
+                        goomba.posX += goomba.velX;
+                    }
+                });
+
+                goomba.posY += goomba.velY;
+                bloquesSolidos.forEach(bloque => {
+                    if (verificarColision(goomba, bloque)) {
+                        if (goomba.velY > 0) {
+                            goomba.posY = bloque.posY - goomba.alto;
+                            goomba.velY = 0;
+                        }
+                    }
+                });
+
+                goomba.actualizarPosicion();
+
+                // Resolver conflicto Mario contra Goomba
+                if (verificarColision(jugadorHTML, goomba)) {
+                    // Si Mario cae sobre el enemigo
+                    if (jugadorHTML.velY > 0 && jugadorHTML.posY + jugadorHTML.alto - jugadorHTML.velY <= goomba.posY + 14) {
+                        jugadorHTML.velY = -8.5; 
+                        audio.playAplastamiento(); // <--- SONIDO DE APLASTAR
+                        goomba.remove(); 
+                        listaGoombas.splice(i, 1); 
+                    } else {
+                        finalizacionJuego(); // Choque de costados
+                    }
+                }
+            }
+
+            // Desplazamiento dinámico de cámara
+            let camaraX = jugadorHTML.posX - 350;
+            if (camaraX < 0) camaraX = 0;
+            if (camaraX > 2200) camaraX = 2200; 
+
+            mundoDOM.style.transform = `translate3d(${-camaraX}px, 0, 0)`;
+
+            requestAnimationFrame(loop);
+        }
+
+        function finalizacionJuego() {
+            document.getElementById('estado-juego').textContent = "¡GAME OVER! (F5 para reiniciar)";
+            document.getElementById('estado-juego').style.color = "#ff3366";
+            juegoActivo = false;
+            audio.playGameOver(); // <--- SONIDO DE MUERTE
+        }
+    </script>
+</body>
+</html>
